@@ -58,11 +58,6 @@
             require-prior-idle-ms = <150>;
         };
 
-        capslock {
-            bindings = <&kp CAPSLOCK>;
-            key-positions = <26 27>;
-        };
-
         alt {
             bindings = <&kp LEFT_ALT>;
             key-positions = <30 31>;
