@@ -63,6 +63,16 @@
             key-positions = <26 27>;
         };
 
+        alt {
+            bindings = <&kp LEFT_ALT>;
+            key-positions = <30 31>;
+        };
+
+        capslock {
+            bindings = <&kp CAPSLOCK>;
+            key-positions = <36 37>;
+        };
+
         /* ジェスチャー起動は「Lキー長押し」(下の gesture_l ホールドタップ)に
          * 変更したので、mouse_gesture_activate コンボは廃止。
          * 1キーだけのコンボ(key-positions = <18>)が残っているとLの入力を
