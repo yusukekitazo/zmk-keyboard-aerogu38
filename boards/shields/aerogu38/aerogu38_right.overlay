@@ -4,6 +4,8 @@
 #include <input/processors/runtime-input-processor.dtsi>
 #include <dt-bindings/zmk/runtime_input_processor.h>
 #include <dt-bindings/zmk/input_transform.h>
+#include <dt-bindings/zmk/modifiers.h>
+#include <mouse-gesture.dtsi>
 
 &default_transform {
     col-offset = <5>;
@@ -23,14 +25,88 @@
  * console, so drop the node. */
 &board_cdc_acm_uart { status = "disabled"; };
 
+/* mouse_runtime_input_processor is wired into trackball_listener below
+ * (DYA Studio's CPI/snipe tuning UI), matching upstream's approach.
+ * We only use it for that -- AML stays on the separate zip_temp_layer
+ * node (excluded-positions / require-prior-idle-ms aren't supported by
+ * mouse_runtime's own temp-layer feature). No overrides needed here;
+ * defaults are fine.
+ *
+ * NOTE: touching this node's "Active on Layers" toggle in DYA Studio
+ * has crashed the firmware before -- don't use it. */
+
+/* scroll_runtime_input_processor is NOT used (replaced by scroll_inertia_v
+ * below) -- explicitly disabled rather than left unattached. DYA Studio's
+ * Trackball Settings tab crashed the firmware when this node existed but
+ * wasn't wired into any listener; disabling it removes it from the build
+ * entirely instead of leaving it dangling. */
 &scroll_runtime_input_processor {
-    processor-label = "rscroll";
-    x-codes = <INPUT_REL_X>;
-    y-codes = <INPUT_REL_Y>;
-    xy-to-scroll-enabled;
-    active-layers = <8>;  /* BIT(3) = layer 3 (Scroll) */
-    axis-snap-mode = <AXIS_SNAP_MODE_Y>;
-    axis-snap-threshold = <200>;
+    status = "disabled";
+};
+
+/* AML (auto-mouse-layer) via the static zip_temp_layer processor.
+ * cormoran's mouse_runtime_input_processor's temp-layer feature does NOT
+ * support excluded-positions / require-prior-idle-ms, so it can't do
+ * typing-misfire prevention. AML layer/timeout are build-time fixed
+ * (not Studio-editable) as a result -- confirmed not needed.
+ *
+ * J/K/Lをタイプした直後300ms以内はAMLが発動しない(トラボ誤爆防止)。
+ * J = MOUSEレイヤーの左クリック(MB1)、K = 右クリック(MB2)、
+ * L = ジェスチャー起動(長押し)。J+Kの同時押しはスクロールコンボ。
+ * SCROLLレイヤー(下のscroller_v)では意図的にこのAMLを外している
+ * (すでにSCROLLレイヤーにいる間はMOUSEレイヤーへ切り替える必要がない)。 */
+&zip_temp_layer {
+    excluded-positions = <
+        16 // J
+        17 // K
+        18 // L
+    >;
+    require-prior-idle-ms = <300>;
+};
+
+/* Mouse gesture: activated only while L is held (hold-tap gesture_l in
+ * keymap.keymap; tapping L still types "l"). Movement IS suppressed while
+ * active, so gesture strokes don't also move the cursor/scroll underneath.
+ * Normal trackball use (L not held) is completely unaffected.
+ *
+ * 矢印の向きと一致: 右に転がす→進む、左に転がす→戻る。
+ * 上下: タブ切り替え(上=次のタブ、下=前のタブ)。
+ *
+ * partial-gesture-timeout-ms: upstream kot149/zmk-mouse-gesture PR #13
+ * (jpttm, merged 2026-08-18). Fixes stale partial-stroke accumulation:
+ * a stroke that never reaches stroke-size wasn't being cleared, so it
+ * combined with a later unrelated stroke and produced a wrong-direction
+ * misfire. After 400ms of no movement, the partial accumulation is now
+ * discarded. Author verified reduced left/right misfires on real
+ * hardware (PMW3610); default is 0 (disabled) so this is opt-in.
+ * Untested on our hardware -- confirm feel after flashing; raise if
+ * legitimate multi-stroke gestures start getting cut off mid-way,
+ * lower if stray misfires are still happening. */
+&zip_mouse_gesture {
+    stroke-size = <300>;
+    enable-eager-mode;
+    suppress-movement;
+    partial-gesture-timeout-ms = <400>;
+
+    forward {
+        pattern = <GESTURE_RIGHT>;
+        bindings = <&kp LA(RIGHT_ARROW)>;  /* Alt+Right: forward */
+    };
+
+    back {
+        pattern = <GESTURE_LEFT>;
+        bindings = <&kp LA(LEFT_ARROW)>;   /* Alt+Left: back */
+    };
+
+    tab_next {
+        pattern = <GESTURE_UP>;
+        bindings = <&kp LC(TAB)>;          /* Ctrl+Tab: next tab */
+    };
+
+    tab_prev {
+        pattern = <GESTURE_DOWN>;
+        bindings = <&kp LS(LC(TAB))>;      /* Ctrl+Shift+Tab: previous tab */
+    };
 };
 
 / {
@@ -41,21 +117,80 @@
         timeout-ms = <300>;
     };
 
+    /* iOS-style scroll inertia (yusukekitazo fork of
+     * mjmjm0101/zmk-input-processor-scroll-inertia).
+     *
+     * axis=1 (Y/vertical) is the primary scroll axis for the SCROLL
+     * layer. swap-mod lets Shift flip to horizontal scroll on demand
+     * without needing a second layer.
+     *
+     * scale/scale-div (4/675) are the module's own documented defaults
+     * for a 1000 CPI PMW3610 @ 125Hz -- close to this board's PAW3222
+     * setup. Confirmed working on hardware.
+     *
+     * stop=14 (~10Hz cutoff, up from default 7/~5.2Hz -- avoids the
+     * "カチッ、カチッ" discrete feel below ~5Hz per README guidance).
+     * decay-*=995 (README's upper end for single-curve "iOS風の長い
+     * 滑走感"). friction=5 (README's practical floor; lower/lighter
+     * flicks were gliding noticeably less than big ones with the
+     * default 35). All confirmed good on hardware through iterative
+     * tuning. */
+    scroll_inertia_v: scroll_inertia_v {
+        compatible = "zmk,input-processor-scroll-inertia";
+        #input-processor-cells = <0>;
+
+        axis  = <1>;   /* Y axis only (vertical) */
+        layer = <5>;   /* SCROLL layer */
+
+        scale     = <4>;
+        scale-div = <675>;
+        stop      = <14>;
+
+        decay-fast = <995>;
+        decay-slow = <995>;
+        decay-tail = <995>;
+        friction   = <5>;
+
+        /* Hold Shift to scroll horizontally instead */
+        swap-mod = <(MOD_LSFT|MOD_RSFT)>;
+    };
+
     trackball_listener: trackball_listener {
         compatible = "zmk,input-listener";
         device = <&trackball>;
-        /* Chain order:
-         *   deadzone  - filter sub-threshold noise
-         *   xy_transform - invert both axes (sensor-mounting orientation)
-         *   mouse_runtime - DYA Studio runtime config (CPI / snipe / etc)
-         *   temp_layer 4 1000ms - auto-enable Mouse layer (4) on movement,
-         *     turn back off after 1s of trackball inactivity
-         *   scroll_runtime - convert XY -> scroll on layer 3 only */
+        /* Default chain (all layers except SCROLL, see scroller_v below):
+         *   deadzone      - filter sub-threshold noise
+         *   xy_transform  - invert both axes (sensor-mounting orientation)
+         *   mouse_runtime - DYA Studio CPI/snipe tuning UI (attached to
+         *                   avoid the Trackball Settings tab crash; not
+         *                   otherwise relied upon -- res-cpi is set at
+         *                   boot on the trackball node below)
+         *   mouse_gesture - active only while L is held; suppresses
+         *                   movement downstream during an active gesture
+         *   temp_layer    - auto-mouse-layer -> MOUSE(1), 1000ms timeout,
+         *                   excludes J/K/L with 300ms prior-idle requirement
+         *
+         * No inertia on cursor movement -- confirmed not wanted. */
         input-processors = <&deadzone_processor
                             &zip_xy_transform (INPUT_TRANSFORM_X_INVERT | INPUT_TRANSFORM_Y_INVERT)
                             &mouse_runtime_input_processor
-                            &zip_temp_layer 4 1000
-                            &scroll_runtime_input_processor>;
+                            &zip_mouse_gesture
+                            &zip_temp_layer 1 1000>;
+
+        /* SCROLL layer (index5, entered via the J+K combo) override:
+         * same deadzone/orientation/gesture handling, but XY is mapped
+         * to scroll and run through the inertia processor instead of
+         * mouse_runtime/temp-layer (already intentionally in this
+         * layer). */
+        scroller_v {
+            layers = <5>;
+            input-processors = <&deadzone_processor
+                                &zip_xy_transform (INPUT_TRANSFORM_X_INVERT | INPUT_TRANSFORM_Y_INVERT)
+                                &zip_mouse_gesture
+                                &zip_xy_to_scroll_mapper
+                                &scroll_inertia_v
+                                &zip_scroll_scaler 4 675>;
+        };
     };
 };
 
