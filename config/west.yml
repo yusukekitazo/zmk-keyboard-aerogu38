@@ -10,6 +10,10 @@ manifest:
       url-base: https://github.com/caksoylar
     - name: prospector
       url-base: https://github.com/t-ogura
+    - name: kot149
+      url-base: https://github.com/kot149
+    - name: yusukekitazo
+      url-base: https://github.com/yusukekitazo
   projects:
     # ZMK: cormoran fork, main+dya = ZMK main (Zephyr 4.1) base with DYA Studio RPC
     - name: zmk
@@ -39,5 +43,13 @@ manifest:
       remote: prospector
       revision: main
       path: modules/prospector-zmk-module
+    # Mouse gesture recognition (&mouse_gesture / gesture_l, ported from aerogu34)
+    - name: zmk-mouse-gesture
+      remote: kot149
+      revision: 62f3c9d8ca6763e160b73efc46108c61dd0243a0 # v1 (2026-08-24)
+    # iOS-style scroll inertia (scroll_inertia_v in the right overlay, ported from aerogu34)
+    - name: zmk-input-processor-scroll-inertia
+      remote: yusukekitazo
+      revision: f7dadefee453d555fe066d13a3de3bb60739b45e # main (2026-08-24)
   self:
     path: config
